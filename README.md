@@ -1,1 +1,6 @@
-# Stata
+# Estimating Long-Term Treatment Effects of Combined Diet and Exercise Using Regression Adjustment and Inverse Probability Weighting
+This coursework employed Stata to evaluate the long-term effect of a combined diet and exercise intervention on body mass index (BMI) change over a 10-year period using observational data. 
+The analysis involved descriptive statistics, graphical data exploration, and linear regression to assess covariate imbalance and treatment effects. 
+Regression adjustment (RA) and inverse probability weighting (IPW) were both used to estimate the average treatment effect (ATE), with model diagnostics ensuring robustness. Covariate selection and model specification were guided by theoretical plausibility, significance, and model fit criteria (AIC/BIC). 
+Propensity score models were evaluated using probit regression, and covariate balance and overlap were assessed through standardized mean differences and distribution plots. Sensitivity analysis with weight trimming was conducted to ensure the stability of IPW estimates. 
+Cost data modeling approaches were also discussed, including OLS, generalized linear models (GLMs), and two-part models, with emphasis on handling skewness and heteroscedasticity in healthcare costs.
