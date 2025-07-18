@@ -1,0 +1,358 @@
+# Estimating Long-Term Treatment Effects of Combined Diet and Exercise Using Regression Adjustment and Inverse Probability Weighting
+
+/***************  
+ Step 0
+****************/  
+
+clear all
+
+//set working directory
+cd "C:\Users\user\Desktop\*******"
+
+capture log close
+log using "****", replace
+
+
+/***************  
+ Step 1
+****************/
+use BMIData_0.dta, clear
+
+label define gender_lbl 1 "male" 0 "female"
+label values male gender_lbl
+
+label define treat_lbl 1 "Diet+Exercise" 0 "Diet only"
+label values treat treat_lbl
+
+label define stress_lbl 1 "Chronic stress" 0 "/"
+label values stress stress_lbl
+
+label define fastfood_lbl 1 "Fastfood neighbourhood" 0 "/"
+label values fastfood fastfood_lbl
+
+label variable pid "Patient id"
+label variable bmi0 "baseline BMI"
+label variable pbmichange  "Percentage BMI change after 10 years"
+
+
+// what's in the data?
+describe
+
+//summary stats
+summarize
+
+//summarize detail
+summarize,detail
+
+
+/***************  
+ Step 2 Variable analysis
+****************/
+
+/* ------------------------------------------------- */
+/* Understand the distribution of variables in population  */
+/* ------------------------------------------------- */
+
+// Oridanal variables
+tabulate male // counts of male/female
+tabulate stress //% people under chronic stress
+tabulate fastfood // % living in fast-food dense areas
+tabulate treat // distribution of treatment groups
+
+//Continuous variables
+histogram bmi0, frequency title("Histogram of baseline BMI") ///
+    xtitle("baseline BMI") ytitle("Number of participants")
+histogram age, frequency title("Histogram of Age") ///
+    xtitle("Age") ytitle("Number of participants")
+	
+/* ------------------------------------------------- */
+/* Distribution across variables in population  */
+/* ------------------------------------------------- */
+by male, sort:tabulate stress
+by male, sort:tabulate fastfood
+by stress, sort:tabulate fastfood
+
+graph box age, over(male)
+graph box age, over(stress)
+graph box age, over(fastfood)
+graph box bmi0, over(male)
+graph box bmi0, over(stress)
+graph box bmi0, over(fastfood)
+
+/***************  
+ Step 3 Outcomes analysis
+****************/
+histogram pbmichange, normal title("Histogram of % BMI Change") ///
+    xtitle("% Change in BMI after 10 years") ytitle("Frequency")
+ttest pbmichange, by(treat)
+graph box pbmichange, over(treat) title("BMI Change by Group") ytitle("BMI % Change")
+
+/***************  
+ Step 4 Variable and outcomes
+****************/
+// Continuous 1: Age
+twoway ///
+    (scatter pbmichange age, mcolor(%30) msymbol(o)) ///
+    (lowess pbmichange age, bwidth(0.8) lcolor(red) lwidth(medium)) ///
+, ///
+    title("BMI % Change vs Age", size(medium)) ///
+    xtitle("Age at Baseline", size(small)) ///
+    ytitle("BMI % Change", size(small)) ///
+    legend(order(1 "Individual Data" 2 "Lowess Trend") ring(0) pos(1)) ///
+    graphregion(color(white)) ///
+    ylabel(, angle(horizontal)) ///
+    xlabel(, angle(horizontal))
+
+// Continuous 2: Baseline BMI
+twoway (scatter pbmichange bmi0), ///
+title("BMI % Change vs baseline BMI") xtitle("baseline BMI") ytitle("BMI % Change")
+
+
+// Supplement with Pearson correlation for Continuouscovariates
+pwcorr pbmichange age, sig
+gen age2 = age^2
+pwcorr pbmichange age2, sig
+pwcorr pbmichange bmi0, sig
+
+// Binary 1: Gender
+graph box pbmichange, over(male)title("BMI % Change by Gender") ytitle("BMI % Change")
+
+// Binary 2: Stress 
+graph box pbmichange, over(stress)title("BMI % Change by Stress Status") ytitle("BMI % Change")
+
+// Binary 3: Fast food exposure 
+graph box pbmichange, over(fastfood)title("BMI % Change by Fast Food Environment") ytitle("BMI % Change")
+
+// Supplement with t-tests for binary covariates
+ttest pbmichange, by(male)
+ttest pbmichange, by(stress)
+ttest pbmichange, by(fastfood)
+
+
+/****************************************************************/
+/* SECTION II: Selection on observables       */
+/****************************************************************/
+
+/***************  
+ Step 1 Naive treatment effect
+****************/
+
+//unadjusted mean bmi change
+mean pbmichange, over(treat)
+
+//test defference in mean cost
+ttest pbmichange, by(treat)
+
+//keep mean pbmichange by treatment groups
+global a = r(mu_1) // stores the control group mean in the global macro a
+global b = r(mu_2) // stores the treatment group mean in the global macro b
+global diff= $a -$b // stores the difference in mean pbmichange in the global macro diff
+display "Difference in unadjusted means: $diff" // displays what is stored in the
+global macro diff
+
+/***************  
+ Step 2 Descriptive stats by treatment group
+****************/
+/* ------------------------------------------------- */
+/* Check if there is imbalance between treatment group   */
+/* ------------------------------------------------- */
+bysort treat: summarize
+
+/* ------------------------------------------------- */
+/* t-tests for continuous variables  */
+/* ------------------------------------------------- */
+// Continuous 1: Age
+ttest age, by(treat)
+
+//by age group(18-55)
+gen agegrp = .
+replace agegrp = 1 if age < 30
+replace agegrp = 2 if age >=30 & age < 40
+replace agegrp = 3 if age >=40 & age < 50
+replace agegrp = 4 if age >=50
+label define agegrp 1 "<30" 2 "30–39" 3 "40–49" 4 "50–55"
+label values agegrp agegrp
+
+mean pbmichange, over(agegrp)
+
+twoway (scatter pbmichange age, sort) (lfit pbmichange age), saving("overall", replace)
+
+twoway (scatter pbmichange age if treat==0, sort mcolor(blue) legend(label(1 "Diet only")) xtitle("Age") ytitle("pbmichange")) ///
+(scatteri $a 18 $a 60, recast(connected) lcolor(blue) mcolor(blue) legend(label(2 "Unadjusted average (Diet only)"))) ///
+(scatter pbmichange age if treat==1, mcolor(red) legend(label(3 "Diet+Exercise"))) ///
+ (scatteri $b 18 $b 60, recast(connected) lcolor(red) mcolor(red) ///
+ legend(label(4 "Unadjusted average (Diet+Exercise)"))), saving("pic1", replace)
+ 
+// Continuous 2: Baseline BMI
+ttest bmi0, by(treat)
+
+//by baseline bmi(24.7-30.9)
+gen bmi0grp = .
+replace bmi0grp = 1 if bmi0 < 18.5
+replace bmi0grp = 2 if bmi0 >= 18.5 & bmi0 < 25
+replace bmi0grp = 3 if bmi0 >= 25 & bmi0 < 30
+replace bmi0grp = 4 if bmi0 >= 30
+
+label define bmi0grp_lbl ///
+    1 "Underweight (<18.5)" ///
+    2 "Normal (18.5–24.9)" ///
+    3 "Overweight (25–29.9)" ///
+    4 "Obese (≥30)"
+
+label values bmi0grp bmi0grp_lbl
+
+mean pbmichange, over(bmi0grp)
+
+twoway (lfit pbmichange bmi0 if treat==0, lcolor(blue)) ///
+       (lfit pbmichange bmi0 if treat==1, lcolor(red)) ///
+       (scatter pbmichange bmi0 if treat==0, mcolor(blue)) ///
+       (scatter pbmichange bmi0 if treat==1, mcolor(red))
+
+twoway (scatter pbmichange bmi0 if treat==0, sort mcolor(blue) legend(label(1 "Diet only")) xtitle("baseline BMI") ytitle("pbmichange")) ///
+(scatteri $a 23 $a 33, recast(connected) lcolor(blue) mcolor(blue) legend(label(2 "Unadjusted average (Diet only)"))) ///
+(scatter pbmichange bmi0 if treat==1, mcolor(red) legend(label(3 "Diet+Exercise"))) ///
+ (scatteri $b 23 $b 33, recast(connected) lcolor(red) mcolor(red) ///
+ legend(label(4 "Unadjusted average (Diet+Exercise)"))), saving("pic1", replace)
+ 
+/* ------------------------------------------------- */
+/* Chi-squared tests for categorical variables  */
+/* ------------------------------------------------- */
+tabulate male treat, chi2
+tabulate stress treat, chi2
+tabulate fastfood treat, chi2
+
+
+/***************  
+ Step 3 Treatment effect using a linear regression
+****************/
+//Treatment effect using a linear regression
+
+//3.1 Naive model(unadjusted)
+regress pbmichange treat 
+estimates store model1
+
+linktest
+hettest
+rvfplot
+
+//3.2 Full model 
+regress pbmichange treat age age2 bmi0 male stress fastfood
+estimates store model2
+ovtest
+linktest
+hettest
+rvfplot
+
+//3.3 Parsimonious Model
+regress pbmichange treat age age2 bmi0 male stress
+estimates store model3
+ovtest
+linktest
+hettest
+rvfplot
+
+//3.4 Age × Treatment
+regress pbmichange treat##c.age age age2 bmi0 male stress
+estimates store model4
+ovtest
+linktest
+hettest
+rvfplot
+
+//3.5 Sensitivity Model：Baseline BMI interaction
+regress pbmichange treat##c.bmi0 age age2 bmi0 male stress
+estimates store model5
+ovtest
+linktest
+hettest
+rvfplot
+
+//test restrictions implied by model2 
+lrtest model2 model3
+
+estimates table model1 model2 model3 model4 model5, star stats(aic bic r2 N)
+
+
+
+
+/***************  
+ Step 4 Regression adjustment (RA)
+****************/
+teffects ra (pbmichange age age2 bmi0 male stress) (treat)
+
+/***************  
+ Step 5 Inverse probability weighting (IPW)
+****************/
+
+//modelling the propensity score
+
+//5.1 IPW1
+probit treat age bmi0 male stress fastfood
+estimates store model1
+estat gof
+
+//5.2 IPW2
+probit treat c.age c.age#c.age bmi0 male stress fastfood
+estimates store model2
+estat gof
+
+lrtest model1 model2
+
+//5.3 IPW3
+probit treat i.agegrp bmi0 male stress fastfood
+estimates store model3
+estat gof
+
+//5.4 IPW4
+probit treat age bmi0 stress
+estimates store model4
+estat gof
+
+lrtest model1 model4
+
+//5.4 IPW5
+probit treat age bmi0 male stress c.age#i.male 
+estimates store model5
+
+//5.4 IPW6
+probit treat age bmi0 male stress c.bmi0#i.male 
+estimates store model6
+
+
+// Choose the model with better AIC/BIC and good fit
+estimates table model1 model2 model3 model4 model5 model6, star stats(aic bic r2 N)
+
+//Estimate ATE using IPW (based on chosen PS model)
+teffects ipw (pbmichange) (treat age bmi0 stress,probit),aeq
+
+
+//Check Covariate Balance and Overlap
+tebalance overid
+
+tebalance summarize age bmi0 stress,baseline 
+tebalance summarize age bmi0 stress 
+
+
+// Check overlap (propensity distribution by treatment)
+tebalance density age
+tebalance density bmi0
+
+teffects overlap, ptlevel(1)
+
+
+// Visualize weights
+predict double pscore,ps tlevel(1)
+gen double wei=1/pscore if treat==1
+replace wei=1/(1-pscore) if treat==0
+
+twoway (scatter pbmichange age if treat==0 [w=wei], sort mcolor(blue) msymbol(circle_hollow)legend(label(1 "Diet only")) xtitle("Age at Baseline") ytitle("BMI % Change (10 years)")) (scatter pbmichange age if treat==1 [w=wei], mcolor(red) msymbol(circle_hollow) legend(label(2 "Exercise + Diet")) )
+
+summ wei
+
+twoway (scatter pbmichange bmi0 if treat==0 [w=wei], sort mcolor(blue) msymbol(circle_hollow)legend(label(1 "Control")) xtitle("baseline BMI") ytitle("pbmichange")) (scatter pbmichange bmi0 if treat==1 [w=wei], mcolor(red) msymbol(circle_hollow) legend(label(2 "Treated")) )
+
+// Sensitivity test
+gen wei_trim = wei
+replace wei_trim = 10 if wei > 10
+
+reg pbmichange treat [pw=wei_trim]
